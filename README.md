@@ -67,5 +67,5 @@ The reliable fix is the **Export backup** button (bottom-right corner) — it sa
 
 Both your Client Secret and (once you log in) your Spotify login session live in this file/browser. Don't upload it anywhere public or share it.
 
-## Hosting and installing (v120)
+## Hosting and installing (v121)
 Upload everything in this folder to a public GitHub repo, turn on Pages (Settings, Pages, deploy from branch `main`, folder `/ (root)`), add `https://<username>.github.io/<repo>/` as a Redirect URI in the Spotify developer dashboard, then open that address in Brave/Chrome/Edge and choose Install.
