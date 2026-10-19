@@ -1,6 +1,6 @@
 // LP: Album Player service worker — keeps a copy of the app so it opens
 // instantly and works with no internet. Spotify itself is never cached.
-const CACHE = "lp-album-player-v121";
+const CACHE = "lp-album-player-v123";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png",
                "icon-maskable-512.png", "shelf-cabinet.png", "shelf-cabinet-night.png"];
 
