@@ -3890,6 +3890,7 @@
   const REDIRECT_URI = window.location.origin + window.location.pathname;
   const USER_SCOPES = "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-follow-read user-follow-modify";
   const REFRESH_TOKEN_KEY = "vinyl_shelf_spotify_refresh_token";
+  const LOGIN_INTENT_KEY = "vinyl_shelf_login_intent";
   const GRANTED_SCOPE_KEY = "vinyl_shelf_spotify_scope"; // deliberately NOT in BACKUP_KEYS — it describes this browser's login, not your collection
 
   let userAccessToken = null;
@@ -4022,7 +4023,12 @@
     // (its shelf AND its login), so a different Spotify account signing in can't
     // overwrite it.
     acctSwitching = true;
-    try { stashActiveAccountForLogin(); } catch (e) { console.error(e); }
+    try {
+      const a0 = loadAccounts();
+      // why we are signing in: adding someone, re-connecting the account on screen, or the very first sign-in
+      localStorage.setItem(LOGIN_INTENT_KEY, opts && opts.add ? "add" : (a0.active ? "reconnect:" + a0.active : "connect"));
+      stashActiveAccountForLogin();
+    } catch (e) { console.error(e); }
     const verifier = pkceRandomString(64);
     sessionStorage.setItem("vinyl_shelf_pkce_verifier", verifier);
     const challenge = await pkceSha256Base64Url(verifier);
@@ -4033,7 +4039,9 @@
     url.searchParams.set("scope", USER_SCOPES);
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("code_challenge", challenge);
-    if (opts && opts.add) url.searchParams.set("show_dialog", "true"); // always show Spotify's account chooser when adding someone
+    // Spotify otherwise silently signs in whichever account this browser last used.
+    // Once there is more than one account on the device, always ask for its dialog.
+    if ((opts && opts.add) || loadAccounts().list.length > 0) url.searchParams.set("show_dialog", "true");
     window.location.href = url.toString();
   }
 
@@ -6204,10 +6212,11 @@
     if (a.active) stashLive(a.active, true);
   }
   function initialsOf(name, id) {
-    const words = String(name || "").trim().split(/\s+/).filter(Boolean);
-    if (!words.length) return String(id || "?").slice(0, 2).toUpperCase();
-    if (words.length === 1) return Array.from(words[0]).slice(0, 2).join("").toUpperCase();
-    return (Array.from(words[0])[0] + Array.from(words[words.length - 1])[0]).toUpperCase();
+    // the first two letters of the (first word of the) name: "Simon O'Hagan" -> "Si"
+    const first = String(name || "").trim().split(/\s+/)[0] || String(id || "?");
+    const ch = Array.from(first).filter((c) => /[\p{L}\p{N}]/u.test(c)).slice(0, 2);
+    if (!ch.length) return "?";
+    return ch[0].toUpperCase() + ch.slice(1).join("").toLowerCase();
   }
   function activeAccountSlug() {
     const a = loadAccounts();
@@ -6256,6 +6265,8 @@
   }
 
   async function reconcileAccountAfterLogin(justLoggedIn) {
+    const intent = justLoggedIn ? (localStorage.getItem(LOGIN_INTENT_KEY) || "") : "";
+    if (justLoggedIn) localStorage.removeItem(LOGIN_INTENT_KEY);
     const me = await fetchSpotifyMe();
     if (!me) {
       if (justLoggedIn && (lastMeStatus === 403 || lastMeStatus === 401)) { rollbackRefusedLogin(); renderAccountUi(); updateConnectPromptVisibility(); }
@@ -6269,6 +6280,18 @@
       if (i >= 0) accts.list[i] = { ...accts.list[i], ...entry }; else accts.list.push({ ...entry, addedAt: Date.now() });
     };
     let swapped = false;
+    if (justLoggedIn && intent.startsWith("reconnect:") && intent.slice(10) === cur && me.id !== cur) {
+      // The person asked to re-connect the account on screen, but Spotify signed them in as
+      // someone else (it reuses whichever account the browser is signed into). Don't follow
+      // it to the other shelf: put things back and explain how to pick the right account.
+      const curEntry = accts.list.find((x) => x.id === cur);
+      const who = curEntry ? (curEntry.name || curEntry.id) : "this account";
+      ACCT_LOGIN_KEYS.forEach((k) => localStorage.removeItem(k));
+      userAccessToken = null; userTokenExpires = 0;
+      updateConnectPromptVisibility();
+      showAcctToast(`Spotify signed you in as ${me.display_name || me.id}, but this is ${who}'s shelf. On Spotify's page choose "Not you?" (or log out at open.spotify.com first) and sign in as ${who}. To use ${me.display_name || me.id}'s shelf, switch to it with the account bubbles.`);
+      return false;
+    }
     if (cur !== null && cur !== me.id && !justLoggedIn) {
       // The live Spotify login belongs to someone other than the account whose shelf is
       // showing, and nobody just signed in. Don't swap shelves behind the person's back
