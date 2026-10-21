@@ -63,7 +63,7 @@
 <title>LP: Album Player</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23181818'/%3E%3Ccircle cx='32' cy='32' r='29' fill='none' stroke='%232a2a2a' stroke-width='1'/%3E%3Ccircle cx='32' cy='32' r='24' fill='none' stroke='%232a2a2a' stroke-width='0.7'/%3E%3Ccircle cx='32' cy='32' r='19' fill='none' stroke='%232a2a2a' stroke-width='0.7'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%232a2a2a' stroke-width='0.7'/%3E%3Ccircle cx='32' cy='32' r='10' fill='%23c89b3c'/%3E%3Ccircle cx='32' cy='32' r='2.2' fill='%23181818'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,500&family=Barlow+Condensed:wght@500;600&family=EB+Garamond:wght@500;600&family=Oswald:wght@600;700&family=Space+Grotesk:wght@500;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,500&family=Barlow+Condensed:wght@400;500;600&family=EB+Garamond:wght@500;600&family=Oswald:wght@600;700&family=Space+Grotesk:wght@500;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 
   /* Registering these as actual <color> custom properties (rather than
@@ -918,8 +918,8 @@
     margin: 0;
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    font: 600 0.8rem/1 'Barlow Condensed', 'Work Sans', sans-serif;
-    letter-spacing: 0.04em;
+    font: 400 1rem/1 'Barlow Condensed', 'Work Sans', sans-serif;
+    letter-spacing: 0.05em;
     transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
   }
   .acct-bubble:hover, .acct-bubble:focus-visible { background: #6b5a40; color: var(--cream); transform: scale(1.06); outline: none; }
@@ -969,11 +969,29 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font: 600 0.8rem/1 'Barlow Condensed', 'Work Sans', sans-serif;
-    letter-spacing: 0.04em;
+    font: 400 1rem/1 'Barlow Condensed', 'Work Sans', sans-serif;
+    letter-spacing: 0.05em;
   }
   .acct-avatar svg { width: 16px; height: 16px; display: block; }
   .backup-toggle.active { opacity: 0.8; }
+  .acct-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translate(-50%, 12px);
+    max-width: min(560px, calc(100vw - 32px));
+    background: var(--cream);
+    color: #6b5a40;
+    border-radius: 12px;
+    padding: 0.7rem 1rem;
+    font: 400 0.8rem/1.4 'Work Sans', sans-serif;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 2000000000;
+    pointer-events: none;
+  }
+  .acct-toast.show { opacity: 1; transform: translate(-50%, 0); }
   body.offline #acct-add-btn { display: none; } /* signing in needs the internet */
   .backup-status {
     position: absolute;
@@ -4003,6 +4021,7 @@
     // v127: keep the account whose shelf is showing safe before leaving the page
     // (its shelf AND its login), so a different Spotify account signing in can't
     // overwrite it.
+    acctSwitching = true;
     try { stashActiveAccountForLogin(); } catch (e) { console.error(e); }
     const verifier = pkceRandomString(64);
     sessionStorage.setItem("vinyl_shelf_pkce_verifier", verifier);
@@ -4021,7 +4040,7 @@
   async function handleOAuthRedirectIfPresent() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    if (!code) return;
+    if (!code) return false;
     try {
       const verifier = sessionStorage.getItem("vinyl_shelf_pkce_verifier");
       const body = new URLSearchParams({
@@ -4042,16 +4061,30 @@
       userTokenExpires = Date.now() + data.expires_in * 1000 - 5000;
       if (data.refresh_token) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
       if (data.scope) localStorage.setItem(GRANTED_SCOPE_KEY, data.scope);
+      return true;
     } catch (err) {
       console.error(err);
+      return false;
     } finally {
       window.history.replaceState({}, "", REDIRECT_URI); // scrub ?code= from the visible URL
     }
   }
 
-  async function refreshUserToken() {
+  let acctSwitching = false;   // true from the moment an account switch / sign-in starts, until the page reloads
+  let refreshInFlight = null;  // so two callers share one refresh instead of racing two (the SDK and the app both ask at startup)
+  function refreshUserToken() {
+    if (!refreshInFlight) refreshInFlight = doRefreshUserToken().finally(() => { refreshInFlight = null; });
+    return refreshInFlight;
+  }
+  async function doRefreshUserToken() {
+    if (acctSwitching) return null;
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) return null;
+    const activeAtStart = loadAccounts().active;
+    // v129: the live login can change while this request is in the air (the account
+    // was switched, or another window of the app signed in as someone else). A
+    // result that no longer belongs to the live login must never be written back.
+    const stillCurrent = () => !acctSwitching && loadAccounts().active === activeAtStart && localStorage.getItem(REFRESH_TOKEN_KEY) === refreshToken;
     try {
       const body = new URLSearchParams({
         client_id: SPOTIFY_CLIENT_ID,
@@ -4065,6 +4098,7 @@
       });
       if (!res.ok) throw new Error("Spotify token refresh failed");
       const data = await res.json();
+      if (!stillCurrent()) return null;
       userAccessToken = data.access_token;
       userTokenExpires = Date.now() + data.expires_in * 1000 - 5000;
       if (data.refresh_token) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
@@ -4072,8 +4106,10 @@
       return userAccessToken;
     } catch (err) {
       console.error(err);
-      localStorage.removeItem(REFRESH_TOKEN_KEY); // stale/revoked — back to showing "connect"
-      updateConnectPromptVisibility();
+      if (stillCurrent()) {
+        localStorage.removeItem(REFRESH_TOKEN_KEY); // stale/revoked — back to showing "connect"
+        updateConnectPromptVisibility();
+      }
       return null;
     }
   }
@@ -6048,7 +6084,7 @@
     const a = document.createElement("a");
     a.href = url;
     const acctSlug = (typeof activeAccountSlug === "function" ? activeAccountSlug() : "");
-    a.download = `lp-album-player-backup-${acctSlug ? acctSlug + "-" : ""}${formatBackupFilenameTimestamp(new Date())}.json`;
+    a.download = `lp-backup-${acctSlug ? acctSlug + "-" : ""}${formatBackupFilenameTimestamp(new Date())}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -6176,14 +6212,20 @@
   function activeAccountSlug() {
     const a = loadAccounts();
     const e = a.list.find((x) => x.id === a.active);
-    return e ? String(e.name || e.id).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) : "";
+    if (!e) return "";
+    const first = String(e.name || e.id).trim().split(/\s+/)[0] || "";
+    const slug = first.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20);
+    return slug || String(e.id).toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20);
   }
 
+  let lastMeStatus = 0; // HTTP status of the last /me call (0 = no answer, e.g. offline)
   async function fetchSpotifyMe() {
+    lastMeStatus = 0;
     try {
       const t = await getUserAccessToken();
       if (!t) return null;
       const r = await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${t}` } });
+      lastMeStatus = r.status;
       if (!r.ok) return null;
       const d = await r.json();
       return d && d.id ? d : null;
@@ -6192,9 +6234,33 @@
 
   // Works out whose shelf is on screen once Spotify says who is signed in.
   // Returns true if it swapped shelves (the caller then reloads).
-  async function reconcileAccountAfterLogin() {
+  function showAcctToast(msg) {
+    const t = document.createElement("div");
+    t.className = "acct-toast";
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add("show"));
+    setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 400); }, 9000);
+  }
+  // Spotify let someone sign in but then refuses them (an account not on the owner's
+  // developer-dashboard allowlist answers 403). Put the previous account's login back
+  // so nothing is lost, and say what happened.
+  function rollbackRefusedLogin() {
+    const cur = loadAccounts().active;
+    ACCT_LOGIN_KEYS.forEach((k) => {
+      const v = cur ? localStorage.getItem(acctStashKey(cur, k)) : null;
+      if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
+    });
+    userAccessToken = null; userTokenExpires = 0;
+    showAcctToast("Spotify wouldn't let that account in yet. Ask the app's owner to add its email in the Spotify developer dashboard, then try again. Your shelf is unchanged.");
+  }
+
+  async function reconcileAccountAfterLogin(justLoggedIn) {
     const me = await fetchSpotifyMe();
-    if (!me) return false;
+    if (!me) {
+      if (justLoggedIn && (lastMeStatus === 403 || lastMeStatus === 401)) { rollbackRefusedLogin(); renderAccountUi(); updateConnectPromptVisibility(); }
+      return false;
+    }
     const accts = loadAccounts();
     const cur = accts.active;
     const entry = { id: me.id, name: me.display_name || me.id, lastUsed: Date.now() };
@@ -6203,6 +6269,17 @@
       if (i >= 0) accts.list[i] = { ...accts.list[i], ...entry }; else accts.list.push({ ...entry, addedAt: Date.now() });
     };
     let swapped = false;
+    if (cur !== null && cur !== me.id && !justLoggedIn) {
+      // The live Spotify login belongs to someone other than the account whose shelf is
+      // showing, and nobody just signed in. Don't swap shelves behind the person's back
+      // (that was the "flips back to the other account" bug): sign that login out and ask.
+      const curEntry = accts.list.find((x) => x.id === cur);
+      ACCT_LOGIN_KEYS.forEach((k) => localStorage.removeItem(k));
+      userAccessToken = null; userTokenExpires = 0;
+      updateConnectPromptVisibility();
+      showAcctToast(`Spotify was signed in as someone else, so it was signed out to protect ${curEntry ? (curEntry.name || curEntry.id) : "this"}'s shelf. Click Connect Spotify (or +) and sign in as them to continue.`);
+      return false;
+    }
     if (cur === null || cur === me.id) {
       // first sign-in on this browser claims the shelf already here / same account again
       upsert();
@@ -6225,6 +6302,7 @@
   function switchToAccount(id) {
     const a = loadAccounts();
     if (a.active === id || !a.list.some((x) => x.id === id)) return;
+    acctSwitching = true; // from here no in-flight token refresh may write into the live slot
     if (a.active) stashLive(a.active, true);
     loadStashToLive(id, true);
     a.active = id;
@@ -6253,6 +6331,7 @@
 
   function renderAccountUi() {
     const a = loadAccounts();
+    shownActiveAccount = a.active;
     const cur = a.list.find((x) => x.id === a.active);
     if (cur) {
       acctAvatarEl.textContent = initialsOf(cur.name, cur.id);
@@ -6277,9 +6356,18 @@
     if (b) switchToAccount(b.getAttribute("data-acct"));
   });
   acctAddBtn.addEventListener("click", (e) => { e.stopPropagation(); beginUserLogin({ add: true }); });
+  // Another window of the app (e.g. the installed app and a browser tab) shares this storage.
+  // If it switches account, follow it instead of carrying on as the old one.
+  // Coming back to the page with the browser's Back button after starting a sign-in restores
+  // it frozen mid-switch; reload so it works normally again.
+  window.addEventListener("pageshow", (e) => { if (e.persisted) location.reload(); });
+  let shownActiveAccount = loadAccounts().active;
+  window.addEventListener("storage", (e) => {
+    if (e.key === ACCOUNTS_KEY && loadAccounts().active !== shownActiveAccount) { acctSwitching = true; location.reload(); }
+  });
 
   async function bootstrapSpotifyAuth() {
-    await handleOAuthRedirectIfPresent();
+    const justLoggedIn = await handleOAuthRedirectIfPresent();
     renderAccountUi();
     updateConnectPromptVisibility();
     syncIdleSearchDisplay();
@@ -6287,7 +6375,7 @@
       initSpotifyPlayerIfLoggedIn(); // safety net in case the SDK's own ready event fired first
     }
     if (hasSpotifyLogin() && !isOffline) {
-      const swapped = await reconcileAccountAfterLogin();
+      const swapped = await reconcileAccountAfterLogin(justLoggedIn);
       if (swapped) { location.reload(); return; }
       renderAccountUi();
     }
