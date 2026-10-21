@@ -886,43 +886,110 @@
   }
   .save-indicator svg { display: block; width: 100%; height: 100%; }
 
+  /* v127: the old export/import panel is now a stack of round bubbles above
+     the account button: [export] [import] ─ [+ add account] [other accounts…]
+     with the active account's initials as the button itself. */
   .backup-panel {
     position: absolute;
-    bottom: calc(7.8% + 50px);
-    right: 9%;
+    bottom: calc(7.8% + 58px);
+    right: calc(9% + 6px); /* centres the 40px stack over the 52px button */
+    width: 40px;
     display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
     z-index: 50;
-    background: var(--cream);
-    border-radius: 8px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.35);
-    padding: 0.5rem;
-    width: 170px;
     font-family: 'Work Sans', sans-serif;
   }
-  .backup-panel.open { display: block; }
-  .backup-panel-btn {
-    display: block;
-    width: 100%;
-    background: none;
+  .backup-panel.open { display: flex; }
+  .acct-bubble {
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     border: 1.5px solid #6b5a40;
-    border-radius: 8px;
+    background: var(--cream);
     color: #6b5a40;
-    font-family: 'Work Sans', sans-serif;
-    font-size: 0.72rem;
-    padding: 0.4rem 0.5rem;
-    margin-bottom: 0.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font: 600 0.8rem/1 'Barlow Condensed', 'Work Sans', sans-serif;
+    letter-spacing: 0.04em;
+    transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
   }
-  .backup-panel-btn:last-of-type { margin-bottom: 0; }
-  .backup-panel-btn:hover { background: #6b5a40; color: var(--cream); }
+  .acct-bubble:hover, .acct-bubble:focus-visible { background: #6b5a40; color: var(--cream); transform: scale(1.06); outline: none; }
+  .acct-bubble svg { width: 18px; height: 18px; display: block; }
+  .acct-bubble::after {
+    content: attr(data-label);
+    position: absolute;
+    right: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--cream);
+    color: #6b5a40;
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    font: 400 0.66rem/1.2 'Work Sans', sans-serif;
+    letter-spacing: 0;
+    white-space: nowrap;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .acct-bubble:hover::after, .acct-bubble:focus-visible::after { opacity: 1; }
+  .acct-list { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .acct-sep { width: 18px; height: 1.5px; border-radius: 1px; background: rgba(107,90,64,0.45); }
+  .acct-x {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #6b5a40;
+    color: var(--cream);
+    border: 1px solid var(--cream);
+    font: 600 0.6rem/1 'Work Sans', sans-serif;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .acct-bubble:hover .acct-x { display: flex; }
+  .acct-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 600 0.8rem/1 'Barlow Condensed', 'Work Sans', sans-serif;
+    letter-spacing: 0.04em;
+  }
+  .acct-avatar svg { width: 16px; height: 16px; display: block; }
+  .backup-toggle.active { opacity: 0.8; }
+  body.offline #acct-add-btn { display: none; } /* signing in needs the internet */
   .backup-status {
-    margin: 0.5rem 0 0;
-    font-size: 0.64rem;
+    position: absolute;
+    right: calc(100% + 10px);
+    bottom: 0;
+    margin: 0;
+    max-width: 260px;
+    background: var(--cream);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+    font-size: 0.66rem;
     color: #6b5a40;
     font-style: italic;
-    min-height: 1em;
   }
+  .backup-status:empty { display: none; }
 
   .backup-confirm {
     position: fixed;
@@ -2143,15 +2210,18 @@
       <button class="releases-toggle" id="releases-toggle" aria-label="New releases from artists you follow">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 6.5l9.5 7 9.5-7"/></svg>
       </button>
-      <button class="backup-toggle" id="backup-toggle" aria-label="Backup and restore your shelf">
-        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+      <button class="backup-toggle" id="backup-toggle" aria-label="Accounts and backup">
+        <span class="acct-avatar" id="acct-avatar"></span>
       </button>
       <button class="lamp-toggle" id="lamp-toggle" aria-label="Switch between day and night mode">
         <span class="lamp-toggle-icon" id="lamp-toggle-icon" aria-hidden="true"></span>
       </button>
       <div class="backup-panel" id="backup-panel">
-        <button type="button" class="backup-panel-btn" id="backup-export-btn">Export backup</button>
-        <button type="button" class="backup-panel-btn" id="backup-import-btn">Import backup</button>
+        <button type="button" class="acct-bubble backup-panel-btn" id="backup-export-btn" data-label="Export backup" aria-label="Export backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></button>
+        <button type="button" class="acct-bubble backup-panel-btn" id="backup-import-btn" data-label="Import backup" aria-label="Import backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 19h16"/></svg></button>
+        <span class="acct-sep"></span>
+        <button type="button" class="acct-bubble" id="acct-add-btn" data-label="Add account" aria-label="Add account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+        <div class="acct-list" id="acct-list"></div>
         <input type="file" id="backup-file-input" accept="application/json" style="display:none" />
         <p class="backup-status" id="backup-status"></p>
       </div>
@@ -3929,7 +3999,11 @@
       .replace(/=+$/, "");
   }
 
-  async function beginUserLogin() {
+  async function beginUserLogin(opts) {
+    // v127: keep the account whose shelf is showing safe before leaving the page
+    // (its shelf AND its login), so a different Spotify account signing in can't
+    // overwrite it.
+    try { stashActiveAccountForLogin(); } catch (e) { console.error(e); }
     const verifier = pkceRandomString(64);
     sessionStorage.setItem("vinyl_shelf_pkce_verifier", verifier);
     const challenge = await pkceSha256Base64Url(verifier);
@@ -3940,6 +4014,7 @@
     url.searchParams.set("scope", USER_SCOPES);
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("code_challenge", challenge);
+    if (opts && opts.add) url.searchParams.set("show_dialog", "true"); // always show Spotify's account chooser when adding someone
     window.location.href = url.toString();
   }
 
@@ -5935,8 +6010,8 @@
   const backupConfirmYesBtn = document.getElementById("backup-confirm-yes");
   let pendingImportPayload = null;
 
-  function openBackupPanel() { backupPanelEl.classList.add("open"); }
-  function closeBackupPanel() { backupPanelEl.classList.remove("open"); }
+  function openBackupPanel() { backupPanelEl.classList.add("open"); backupToggleEl.classList.add("active"); }
+  function closeBackupPanel() { backupPanelEl.classList.remove("open"); backupToggleEl.classList.remove("active"); }
   backupToggleEl.addEventListener("click", (e) => {
     e.stopPropagation();
     backupStatusEl.textContent = "";
@@ -5944,7 +6019,7 @@
     else openBackupPanel();
   });
   document.addEventListener("click", (e) => {
-    if (!backupPanelEl.contains(e.target) && e.target !== backupToggleEl) closeBackupPanel();
+    if (!backupPanelEl.contains(e.target) && !backupToggleEl.contains(e.target)) closeBackupPanel();
   });
 
   function formatBackupFilenameTimestamp(d) {
@@ -5972,7 +6047,8 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `lp-album-player-backup-${formatBackupFilenameTimestamp(new Date())}.json`;
+    const acctSlug = (typeof activeAccountSlug === "function" ? activeAccountSlug() : "");
+    a.download = `lp-album-player-backup-${acctSlug ? acctSlug + "-" : ""}${formatBackupFilenameTimestamp(new Date())}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -6050,12 +6126,170 @@
     }
   });
 
+  // =====================================================================
+  // Accounts (v127). One Spotify account = one shelf, on this browser.
+  // The ACTIVE account's data always lives in the ordinary localStorage keys
+  // (so everything else in the app is unchanged); every account also has a
+  // stash copy under vinyl_shelf_acct_<id>__<key>. Switching saves the live
+  // data into the old account's stash, loads the new account's stash into the
+  // live keys, and reloads. The account list is per browser and is not part of
+  // a backup file (a backup is one shelf).
+  // =====================================================================
+  const ACCOUNTS_KEY = "vinyl_shelf_accounts";
+  const ACCT_SHELF_KEYS = [...BACKUP_KEYS, "vinyl_shelf_active_star_filters", "vinyl_shelf_releases_cache", "vinyl_shelf_dirty"];
+  const ACCT_LOGIN_KEYS = [REFRESH_TOKEN_KEY, GRANTED_SCOPE_KEY];
+  const acctStashKey = (id, key) => `vinyl_shelf_acct_${id}__${key}`;
+
+  function loadAccounts() {
+    try {
+      const a = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "null");
+      if (a && Array.isArray(a.list)) return { active: a.active || null, list: a.list };
+    } catch {}
+    return { active: null, list: [] };
+  }
+  function saveAccounts(a) { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(a)); }
+  function copyKeys(keys, fromFn, toFn) {
+    keys.forEach((k) => { const v = fromFn(k); toFn(k, v); });
+  }
+  function stashLive(id, withLogin) {
+    const keys = withLogin ? [...ACCT_SHELF_KEYS, ...ACCT_LOGIN_KEYS] : ACCT_SHELF_KEYS;
+    copyKeys(keys, (k) => localStorage.getItem(k), (k, v) => {
+      if (v === null) localStorage.removeItem(acctStashKey(id, k)); else localStorage.setItem(acctStashKey(id, k), v);
+    });
+  }
+  function loadStashToLive(id, withLogin) {
+    const keys = withLogin ? [...ACCT_SHELF_KEYS, ...ACCT_LOGIN_KEYS] : ACCT_SHELF_KEYS;
+    copyKeys(keys, (k) => localStorage.getItem(acctStashKey(id, k)), (k, v) => {
+      if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
+    });
+  }
+  function stashActiveAccountForLogin() {
+    const a = loadAccounts();
+    if (a.active) stashLive(a.active, true);
+  }
+  function initialsOf(name, id) {
+    const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return String(id || "?").slice(0, 2).toUpperCase();
+    if (words.length === 1) return Array.from(words[0]).slice(0, 2).join("").toUpperCase();
+    return (Array.from(words[0])[0] + Array.from(words[words.length - 1])[0]).toUpperCase();
+  }
+  function activeAccountSlug() {
+    const a = loadAccounts();
+    const e = a.list.find((x) => x.id === a.active);
+    return e ? String(e.name || e.id).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) : "";
+  }
+
+  async function fetchSpotifyMe() {
+    try {
+      const t = await getUserAccessToken();
+      if (!t) return null;
+      const r = await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${t}` } });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return d && d.id ? d : null;
+    } catch { return null; }
+  }
+
+  // Works out whose shelf is on screen once Spotify says who is signed in.
+  // Returns true if it swapped shelves (the caller then reloads).
+  async function reconcileAccountAfterLogin() {
+    const me = await fetchSpotifyMe();
+    if (!me) return false;
+    const accts = loadAccounts();
+    const cur = accts.active;
+    const entry = { id: me.id, name: me.display_name || me.id, lastUsed: Date.now() };
+    const upsert = () => {
+      const i = accts.list.findIndex((x) => x.id === me.id);
+      if (i >= 0) accts.list[i] = { ...accts.list[i], ...entry }; else accts.list.push({ ...entry, addedAt: Date.now() });
+    };
+    let swapped = false;
+    if (cur === null || cur === me.id) {
+      // first sign-in on this browser claims the shelf already here / same account again
+      upsert();
+      accts.active = me.id;
+    } else {
+      // a different Spotify account than the shelf on screen: keep that shelf under its
+      // own account, bring this account's shelf (or a blank one) in, keep the fresh login
+      const fresh = ACCT_LOGIN_KEYS.map((k) => [k, localStorage.getItem(k)]);
+      stashLive(cur, false);
+      loadStashToLive(me.id, false);
+      fresh.forEach(([k, v]) => { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); });
+      upsert();
+      accts.active = me.id;
+      swapped = true;
+    }
+    saveAccounts(accts);
+    return swapped;
+  }
+
+  function switchToAccount(id) {
+    const a = loadAccounts();
+    if (a.active === id || !a.list.some((x) => x.id === id)) return;
+    if (a.active) stashLive(a.active, true);
+    loadStashToLive(id, true);
+    a.active = id;
+    const e = a.list.find((x) => x.id === id);
+    if (e) e.lastUsed = Date.now();
+    saveAccounts(a);
+    location.reload();
+  }
+
+  function removeAccount(id) {
+    const a = loadAccounts();
+    if (a.active === id) return;
+    const e = a.list.find((x) => x.id === id);
+    if (!e) return;
+    if (!window.confirm(`Remove ${e.name || e.id} from this device? Their shelf here will be deleted (a backup file or another device is not affected).`)) return;
+    [...ACCT_SHELF_KEYS, ...ACCT_LOGIN_KEYS].forEach((k) => localStorage.removeItem(acctStashKey(id, k)));
+    a.list = a.list.filter((x) => x.id !== id);
+    saveAccounts(a);
+    renderAccountUi();
+  }
+
+  const GUEST_AVATAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.6 3.2-6 7-6s7 2.4 7 6"/></svg>';
+  const acctAvatarEl = document.getElementById("acct-avatar");
+  const acctListEl = document.getElementById("acct-list");
+  const acctAddBtn = document.getElementById("acct-add-btn");
+
+  function renderAccountUi() {
+    const a = loadAccounts();
+    const cur = a.list.find((x) => x.id === a.active);
+    if (cur) {
+      acctAvatarEl.textContent = initialsOf(cur.name, cur.id);
+      backupToggleEl.setAttribute("aria-label", `Account: ${cur.name || cur.id}. Accounts and backup`);
+      backupToggleEl.title = cur.name || cur.id;
+    } else {
+      acctAvatarEl.innerHTML = GUEST_AVATAR_SVG;
+      backupToggleEl.setAttribute("aria-label", "Accounts and backup");
+      backupToggleEl.title = "Accounts and backup";
+    }
+    const others = a.list.filter((x) => x.id !== a.active).sort((x, y) => (y.lastUsed || 0) - (x.lastUsed || 0));
+    acctListEl.innerHTML = others.map((x) =>
+      `<button type="button" class="acct-bubble" data-acct="${escapeHtml(x.id)}" data-label="Switch to ${escapeHtml(x.name || x.id)}" aria-label="Switch to ${escapeHtml(x.name || x.id)}">${escapeHtml(initialsOf(x.name, x.id))}<span class="acct-x" data-remove="${escapeHtml(x.id)}" role="button" aria-label="Remove ${escapeHtml(x.name || x.id)}">×</span></button>`
+    ).join("");
+    acctAddBtn.dataset.label = cur || a.list.length ? "Add account" : "Connect Spotify account";
+  }
+  acctListEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const x = e.target.closest("[data-remove]");
+    if (x) { removeAccount(x.getAttribute("data-remove")); return; }
+    const b = e.target.closest("[data-acct]");
+    if (b) switchToAccount(b.getAttribute("data-acct"));
+  });
+  acctAddBtn.addEventListener("click", (e) => { e.stopPropagation(); beginUserLogin({ add: true }); });
+
   async function bootstrapSpotifyAuth() {
     await handleOAuthRedirectIfPresent();
+    renderAccountUi();
     updateConnectPromptVisibility();
     syncIdleSearchDisplay();
     if (window.Spotify && hasSpotifyLogin() && !spotifyPlayer) {
       initSpotifyPlayerIfLoggedIn(); // safety net in case the SDK's own ready event fired first
+    }
+    if (hasSpotifyLogin() && !isOffline) {
+      const swapped = await reconcileAccountAfterLogin();
+      if (swapped) { location.reload(); return; }
+      renderAccountUi();
     }
   }
   bootstrapSpotifyAuth();

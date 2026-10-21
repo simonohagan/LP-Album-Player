@@ -69,3 +69,6 @@ Both your Client Secret and (once you log in) your Spotify login session live in
 
 ## Hosting and installing (v126)
 Upload everything in this folder to a public GitHub repo, turn on Pages (Settings, Pages, deploy from branch `main`, folder `/ (root)`), add `https://<username>.github.io/<repo>/` as a Redirect URI in the Spotify developer dashboard, then open that address in Brave/Chrome/Edge and choose Install.
+
+## Accounts (v127)
+The round button bottom-right is your account (initials). Click it to switch accounts, add one (+), or import/export a backup. Each Spotify account has its own shelf on this browser. Your partner's Spotify email must be added in your Spotify developer dashboard (User Management) before she can sign in.
