@@ -2,7 +2,13 @@
 
 (Formerly "Vinyl Shelf". Entries before v118 use the old name.)
 
-## v131 (current)
+## v132 (current)
+- **The sync server address is built in** (`https://lp-sync.simonohagan.workers.dev`), so nobody has to paste anything: connect Spotify and sync starts. The paste box is now only a fallback under the cloud bubble's "Change server address".
+- Tests: `test_v131_sync` re-run for v132 (59 checks) with its last section replaced by built-in-address checks (shelf uploads with nothing pasted, no paste box shown, a brand-new computer gets the shelf with zero setup, a second Spotify account syncs its own separate shelf); v130 account and smoke suites pass; no page errors.
+- Not verified: the live Worker itself (I can't reach it from here); the first real launch will show a green dot if it's set up correctly, or a red one with the reason if not.
+- Service worker cache v132.
+
+## v131
 - **Account bubbles are now capitals:** "Simon" → **SI**, "Jane" → **JA** (accented and non-Latin names work too).
 - **Cloud sync.** The same Spotify account on two computers now shows the same shelf. It needs a free Cloudflare Worker (included: `lp-sync-worker.js`; setup steps in `CLOUD-SYNC-SETUP.md`); until you paste its address the app behaves exactly as v130 and sends nothing anywhere.
   - **How you use it:** a new cloud bubble above the account stack shows a coloured dot (green synced, amber syncing, red problem, grey off). Click it to paste the Worker address once, sync now, or restore an earlier day. After that it just works: changes go up a few seconds after you make them, and the app checks for the other computer's changes every minute, when you come back to the window, and on launch.

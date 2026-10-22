@@ -6421,7 +6421,7 @@
   // add. The "Downloaded" tag is never synced — it describes what is downloaded
   // in Spotify on THIS computer.
   // =====================================================================
-  const SYNC_URL_DEFAULT = ""; // the Worker address, once set up (can also be pasted in the app)
+  const SYNC_URL_DEFAULT = "https://lp-sync.simonohagan.workers.dev"; // the Worker address (can still be overridden in the app)
   const SYNC_URL_KEY = "vinyl_shelf_sync_url"; // per browser, shared by all accounts
   const SYNC_BASE_KEY = "vinyl_shelf_sync_base"; // per account (stashed with it)
   const SYNC_FORCE_KEY = "vinyl_shelf_sync_force"; // per account: skip the safety brake once (after an import / restore)
