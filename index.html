@@ -1025,6 +1025,19 @@
     transform: translate(-50%, -50%);
   }
   .backup-confirm.open { display: block; }
+  .sync-dot { position: absolute; top: 1px; right: 1px; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--cream); background: #a99d86; }
+  #sync-btn[data-state="ok"] .sync-dot { background: #6f9a5b; }
+  #sync-btn[data-state="syncing"] .sync-dot { background: #d9a441; }
+  #sync-btn[data-state="error"] .sync-dot { background: #b2503f; }
+  #sync-btn[data-state="offline"] .sync-dot { background: #a99d86; }
+  .sync-dialog { max-width: 290px; width: 290px; }
+  .sync-msg { margin: 0 0 0.7rem; color: #6b5a40; font-size: 0.7rem; line-height: 1.4; }
+  .sync-help { margin: 0 0 0.45rem; color: #6b5a40; font-size: 0.68rem; line-height: 1.35; }
+  .sync-input { width: 100%; box-sizing: border-box; margin: 0 0 0.8rem; padding: 0.4rem 0.5rem; border: 1px solid #b9a67f; border-radius: 4px; background: #fffaf0; color: var(--wood-dark); font: 400 0.72rem 'Work Sans', sans-serif; }
+  .sync-col { display: flex; flex-direction: column; gap: 0.45rem; }
+  .sync-col .backup-confirm-no, .sync-col .backup-confirm-yes { flex: none; }
+  .sync-dialog .backup-confirm-yes { color: #6b5a40; border-color: #b9a67f; }
+  .sync-dialog .backup-confirm-yes:hover { background: rgba(107,90,64,0.08); }
   .backup-confirm-title {
     margin: 0 0 0.6rem;
     color: var(--wood-dark);
@@ -2237,12 +2250,14 @@
       <div class="backup-panel" id="backup-panel">
         <button type="button" class="acct-bubble backup-panel-btn" id="backup-export-btn" data-label="Export backup" aria-label="Export backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></button>
         <button type="button" class="acct-bubble backup-panel-btn" id="backup-import-btn" data-label="Import backup" aria-label="Import backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 19h16"/></svg></button>
+        <button type="button" class="acct-bubble" id="sync-btn" data-label="Cloud sync" data-state="off" aria-label="Cloud sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 10a4 4 0 0 1 0 8z"/></svg><span class="sync-dot"></span></button>
         <span class="acct-sep"></span>
         <button type="button" class="acct-bubble" id="acct-add-btn" data-label="Add account" aria-label="Add account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
         <div class="acct-list" id="acct-list"></div>
         <input type="file" id="backup-file-input" accept="application/json" style="display:none" />
         <p class="backup-status" id="backup-status"></p>
       </div>
+      <div class="backup-confirm sync-dialog" id="sync-dialog"></div>
       <div class="backup-confirm" id="backup-confirm">
         <p class="backup-confirm-title">Import Backup</p>
         <p class="backup-confirm-count" id="backup-confirm-count"></p>
@@ -2338,6 +2353,7 @@
   }
   function saveAllTagNames() {
     localStorage.setItem("vinyl_shelf_all_tags", JSON.stringify(Array.from(allTagNames)));
+    syncNoteChange(); // cloud sync (v131); a no-op until it has started
   }
 
   function computeBaseWidth(tracks, hash, isSingle) {
@@ -3868,6 +3884,7 @@
   }
   function saveShelf() {
     localStorage.setItem("vinyl_shelf_records", JSON.stringify(shelf));
+    syncNoteChange(); // cloud sync (v131); a no-op until it has started
   }
 
   // v120: no client secret any more (the hosted app is public, so a secret
@@ -6161,6 +6178,7 @@
       if (BACKUP_KEYS.includes(key)) localStorage.setItem(key, val);
     });
     saveDirtyFlag(false); // just synced to a known file — clean by definition
+    try { localStorage.setItem("vinyl_shelf_sync_force", "1"); } catch {} // an import is deliberate: let cloud sync follow it
     location.reload();
   });
   document.addEventListener("keydown", (e) => {
@@ -6180,7 +6198,7 @@
   // a backup file (a backup is one shelf).
   // =====================================================================
   const ACCOUNTS_KEY = "vinyl_shelf_accounts";
-  const ACCT_SHELF_KEYS = [...BACKUP_KEYS, "vinyl_shelf_active_star_filters", "vinyl_shelf_releases_cache", "vinyl_shelf_dirty"];
+  const ACCT_SHELF_KEYS = [...BACKUP_KEYS, "vinyl_shelf_active_star_filters", "vinyl_shelf_releases_cache", "vinyl_shelf_dirty", "vinyl_shelf_sync_base", "vinyl_shelf_sync_force"];
   const ACCT_LOGIN_KEYS = [REFRESH_TOKEN_KEY, GRANTED_SCOPE_KEY];
   const acctStashKey = (id, key) => `vinyl_shelf_acct_${id}__${key}`;
 
@@ -6212,11 +6230,11 @@
     if (a.active) stashLive(a.active, true);
   }
   function initialsOf(name, id) {
-    // the first two letters of the (first word of the) name: "Simon O'Hagan" -> "Si"
+    // the first two letters of the (first word of the) name, in capitals: "Simon O'Hagan" -> "SI"
     const first = String(name || "").trim().split(/\s+/)[0] || String(id || "?");
     const ch = Array.from(first).filter((c) => /[\p{L}\p{N}]/u.test(c)).slice(0, 2);
     if (!ch.length) return "?";
-    return ch[0].toUpperCase() + ch.slice(1).join("").toLowerCase();
+    return ch.join("").toUpperCase();
   }
   function activeAccountSlug() {
     const a = loadAccounts();
@@ -6389,6 +6407,378 @@
     if (e.key === ACCOUNTS_KEY && loadAccounts().active !== shownActiveAccount) { acctSwitching = true; location.reload(); }
   });
 
+  // =====================================================================
+  // Cloud sync (v131). The same Spotify account on two computers shows the
+  // same shelf. A tiny free Cloudflare Worker (lp-sync-worker.js) holds one
+  // copy per Spotify user; this code merges it with the local shelf.
+  //
+  // How the merge works: each device remembers a "base" — the hash of every
+  // record as of its last successful sync. Comparing local and cloud against
+  // that base says who changed what since: only-one-side changes are taken as
+  // they are (including deletions); if both sides changed the same record the
+  // one edited more recently wins. Tags are merged the same way as a set.
+  // Nothing is ever deleted without a base, so a brand-new device can only
+  // add. The "Downloaded" tag is never synced — it describes what is downloaded
+  // in Spotify on THIS computer.
+  // =====================================================================
+  const SYNC_URL_DEFAULT = ""; // the Worker address, once set up (can also be pasted in the app)
+  const SYNC_URL_KEY = "vinyl_shelf_sync_url"; // per browser, shared by all accounts
+  const SYNC_BASE_KEY = "vinyl_shelf_sync_base"; // per account (stashed with it)
+  const SYNC_FORCE_KEY = "vinyl_shelf_sync_force"; // per account: skip the safety brake once (after an import / restore)
+  const SYNC_VOLATILE = new Set(["_m", "_mh", "trackList", "durationMs", "isFresh"]);
+
+  function syncUrl() {
+    let u = "";
+    try { u = localStorage.getItem(SYNC_URL_KEY) || ""; } catch {}
+    return String(u || SYNC_URL_DEFAULT || "").trim().replace(/\/+$/, "");
+  }
+  function syncEnabled() { return !!syncUrl() && hasSpotifyLogin() && !isOffline; }
+
+  function syncHashStr(str) { // cyrb53
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+  function syncStable(v) {
+    if (Array.isArray(v)) return "[" + v.map(syncStable).join(",") + "]";
+    if (v && typeof v === "object") {
+      return "{" + Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => JSON.stringify(k) + ":" + syncStable(v[k])).join(",") + "}";
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  const syncIsDl = (t) => String(t).toLowerCase() === DOWNLOADED_KEY;
+  function recHash(r) {
+    const o = {};
+    for (const k in r) if (!SYNC_VOLATILE.has(k)) o[k] = r[k];
+    if (Array.isArray(o.tags)) o.tags = o.tags.filter((t) => !syncIsDl(t));
+    return syncHashStr(syncStable(o));
+  }
+  function syncOut(r) { // what goes to the cloud: no Downloaded tag
+    const o = Object.assign({}, r);
+    if (Array.isArray(o.tags)) o.tags = o.tags.filter((t) => !syncIsDl(t));
+    return o;
+  }
+  function syncKeepLocalDl(chosen, local) { // a cloud record taken over a local one keeps this computer's Downloaded mark
+    if (!local || !recordIsDownloaded(local) || recordIsDownloaded(chosen)) return chosen;
+    const dl = (local.tags || []).find(syncIsDl);
+    return Object.assign({}, chosen, { tags: [...(chosen.tags || []), dl] });
+  }
+
+  function loadSyncBase() {
+    try {
+      const b = JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || "null");
+      if (b && b.h && typeof b.h === "object") return { has: true, rev: b.rev || 0, ver: String(b.ver || "0"), h: b.h, tags: Array.isArray(b.tags) ? b.tags : [] };
+    } catch {}
+    return { has: false, rev: 0, ver: "0", h: {}, tags: [] };
+  }
+  function saveSyncBase(b) {
+    try { localStorage.setItem(SYNC_BASE_KEY, JSON.stringify({ rev: b.rev, ver: b.ver, h: b.h, tags: b.tags })); } catch {}
+  }
+
+  // The safety brake: if most of a sizeable shelf has vanished locally since the last sync (storage wiped,
+  // or a bug), treat it as an accident rather than a wish: keep the cloud copy and put it back here.
+  function syncBraking(localCount, lostCount, base, force) {
+    const n = Object.keys(base.h).length;
+    return !force && base.has && n >= 10 && (localCount === 0 || lostCount > n / 2);
+  }
+
+  // Pure merge: no I/O. Returns { records, tags, lost, guarded }.
+  function syncMerge(localRecs, remoteRecs, base, localTags, remoteTags, opts) {
+    opts = opts || {};
+    const L = new Map(localRecs.map((r) => [r.id, r]));
+    const R = new Map(remoteRecs.map((r) => [r.id, r]));
+    const lost = Object.keys(base.h).filter((id) => !L.has(id)).length;
+    const guarded = syncBraking(L.size, lost, base, opts.force);
+    const out = [];
+    const ids = new Set([...L.keys(), ...R.keys()]);
+    for (const id of ids) {
+      const l = L.get(id), r = R.get(id), bh = base.h[id];
+      const hl = l ? recHash(l) : undefined, hr = r ? recHash(r) : undefined;
+      const lCh = hl !== bh, rCh = hr !== bh;
+      let pick;
+      if (!lCh && !rCh) pick = l || r;
+      else if (lCh && !rCh) pick = (!l && guarded) ? r : l;
+      else if (!lCh && rCh) pick = r ? syncKeepLocalDl(r, l) : undefined;
+      else if (hl === hr) pick = l;
+      else if (!l) pick = r;
+      else if (!r) pick = l;
+      else pick = (r._m || 0) > (l._m || 0) ? syncKeepLocalDl(r, l) : l;
+      if (pick) out.push(pick);
+    }
+    const lt = new Set(localTags.filter((t) => !syncIsDl(t))), rt = new Set(remoteTags.filter((t) => !syncIsDl(t))), bt = new Set(base.tags);
+    const tags = [];
+    for (const t of new Set([...lt, ...rt])) {
+      const inL = lt.has(t), inR = rt.has(t), inB = bt.has(t);
+      if ((inL && inR) || (inL && !inB) || (inR && !inB)) tags.push(t);
+    }
+    return { records: out, tags, lost, guarded };
+  }
+
+  var syncState = { timer: null, poll: null, busy: false, again: false, started: false, status: "off", lastOk: 0, error: "", wantRetry: 0 };
+  var syncApplying = false;
+
+  function syncNoteChange() {
+    if (!syncState || syncApplying || !syncUrl()) return;
+    // stamp what changed shortly after the edit, so "who edited last" reflects when you actually did
+    clearTimeout(syncState.stampTimer);
+    syncState.stampTimer = setTimeout(stampLocal, 1200);
+    if (syncState.started) syncSchedule(4000);
+  }
+  function syncSchedule(ms) {
+    clearTimeout(syncState.timer);
+    syncState.timer = setTimeout(() => syncRun(), ms);
+  }
+
+  function stampLocal() { // mark records edited since they were last stamped
+    let changed = false;
+    const now = Date.now();
+    for (const r of shelf) {
+      const h = recHash(r);
+      if (r._mh !== h) { r._m = now; r._mh = h; changed = true; }
+    }
+    if (changed) { try { localStorage.setItem("vinyl_shelf_records", JSON.stringify(shelf)); } catch {} }
+  }
+
+  function syncApplyLocal(records, tags) {
+    syncApplying = true;
+    try {
+      const dl = Array.from(allTagNames).filter(syncIsDl);
+      shelf = records;
+      allTagNames = new Set([...tags, ...dl]);
+      localStorage.setItem("vinyl_shelf_records", JSON.stringify(shelf));
+      saveAllTagNames();
+      renderShelf();
+    } finally { syncApplying = false; }
+  }
+
+  async function syncFetch(path, init, token) {
+    init = init || {};
+    const res = await fetch(syncUrl() + path, Object.assign({}, init, { headers: Object.assign({ Authorization: "Bearer " + token }, init.headers || {}) }));
+    if (res.status === 409) { const j = await res.json().catch(() => ({})); return Object.assign({ conflict: true }, j); }
+    if (res.status === 401) throw new Error("Spotify sign-in not accepted by the sync server — try Connect Spotify again");
+    if (res.status === 403) throw new Error("This Spotify account isn't allowed to use this sync server");
+    if (!res.ok) throw new Error("Sync server answered " + res.status);
+    return res.json();
+  }
+
+  const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+  async function syncCycle(acct) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const token = await getUserAccessToken();
+      if (!token) throw new Error("Not signed in to Spotify");
+      if (acctSwitching || loadAccounts().active !== acct) return;
+      let base = loadSyncBase();
+      const rres = await syncFetch("/shelf" + (base.has ? "?ver=" + encodeURIComponent(base.ver) : ""), {}, token);
+      if (acctSwitching || loadAccounts().active !== acct) return;
+      let remote = rres.unchanged ? null : rres;
+      if (remote && base.has && remote.rev < base.rev) remote = null; // a stale read from the cloud — ignore it
+      const force = localStorage.getItem(SYNC_FORCE_KEY) === "1";
+
+      stampLocal();
+      if (!remote && base.has && !force) {
+        const have = new Set(shelf.map((r) => r.id));
+        const lostNow = Object.keys(base.h).filter((id) => !have.has(id)).length;
+        if (syncBraking(shelf.length, lostNow, base, force)) { // the cloud copy is "unchanged", but we need its records to put them back
+          remote = await syncFetch("/shelf", {}, token);
+          if (acctSwitching || loadAccounts().active !== acct) return;
+        }
+      }
+      const localRecs = shelf.slice();
+      const localTags = Array.from(allTagNames);
+      let merged;
+      if (remote) merged = syncMerge(localRecs, remote.records || [], base, localTags, remote.tags || [], { force });
+      else merged = { records: localRecs, tags: localTags.filter((t) => !syncIsDl(t)), guarded: false };
+      const mh = {};
+      merged.records.forEach((r) => { mh[r.id] = recHash(r); });
+
+      const localH = {};
+      localRecs.forEach((r) => { localH[r.id] = recHash(r); });
+      const keysOf = (o) => Object.keys(o);
+      const sameHashes = (a, b) => keysOf(a).length === keysOf(b).length && keysOf(a).every((k) => a[k] === b[k]);
+      const localTagsClean = localTags.filter((t) => !syncIsDl(t));
+      const localDiffers = !sameHashes(mh, localH) || !sameSet(merged.tags, localTagsClean);
+      let remoteH, remoteTagsClean;
+      if (remote) { remoteH = {}; (remote.records || []).forEach((r) => { remoteH[r.id] = recHash(r); }); remoteTagsClean = (remote.tags || []).filter((t) => !syncIsDl(t)); }
+      else { remoteH = base.h; remoteTagsClean = base.tags; }
+      const remoteDiffers = !sameHashes(mh, remoteH) || !sameSet(merged.tags, remoteTagsClean);
+
+      if (localDiffers) {
+        if (openCardCount > 0) { syncState.wantRetry = Date.now(); syncSchedule(5000); return; } // don't rebuild the shelf under an open card
+        if (merged.guarded) showAcctToast("Your shelf here looked mostly emptied, so the cloud copy was kept and put back. (If you meant to delete that much, delete from the other device or use Restore.)");
+        syncApplyLocal(merged.records, merged.tags);
+      }
+      let newRev = remote ? remote.rev : base.rev, newVer = remote ? remote.ver : base.ver;
+      if (remoteDiffers) {
+        const put = await syncFetch("/shelf", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "If-Match": remote ? String(remote.ver) : String(base.ver) },
+          body: JSON.stringify({ records: merged.records.map(syncOut), tags: merged.tags }),
+        }, token);
+        if (put.conflict) continue; // someone else got in first — merge again
+        newRev = put.rev; newVer = put.ver;
+        // Cloud storage can in rare cases take two near-simultaneous writes, keeping only one: check ours survived.
+        const chk = await syncFetch("/shelf?ver=" + encodeURIComponent(newVer), {}, token);
+        if (!chk.unchanged) continue;
+      }
+      saveSyncBase({ rev: newRev, ver: newVer, h: mh, tags: merged.tags });
+      if (force) localStorage.removeItem(SYNC_FORCE_KEY);
+      return;
+    }
+    throw new Error("The cloud copy kept changing — will try again shortly");
+  }
+
+  async function syncRun() {
+    if (!syncState) return;
+    if (!syncUrl() || !hasSpotifyLogin()) { syncSetStatus("off"); return; }
+    if (isOffline) { syncSetStatus("offline"); return; }
+    if (acctSwitching) return;
+    if (syncState.busy) { syncState.again = true; return; }
+    syncState.busy = true;
+    syncSetStatus("syncing");
+    try {
+      await syncCycle(loadAccounts().active);
+      syncState.lastOk = Date.now(); syncState.error = "";
+      syncSetStatus("ok");
+    } catch (e) {
+      syncState.error = String((e && e.message) || e);
+      syncSetStatus(isOffline ? "offline" : "error");
+    } finally {
+      syncState.busy = false;
+      if (syncState.again) { syncState.again = false; syncSchedule(1500); }
+    }
+  }
+
+  function syncStart() {
+    if (syncState.started) return;
+    syncState.started = true;
+    syncSetStatus(syncUrl() ? "syncing" : "off");
+    if (syncUrl()) syncRun();
+    syncState.poll = setInterval(() => { if (!document.hidden) syncRun(); }, 60000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRun(); });
+    window.addEventListener("online", () => setTimeout(syncRun, 1500));
+    window.addEventListener("pagehide", () => { /* anything unsynced is picked up on next launch */ });
+  }
+
+  // ---- UI: a cloud bubble in the account stack, and a small dialog ----
+  const syncBtn = document.getElementById("sync-btn");
+  const syncDialogEl = document.getElementById("sync-dialog");
+  function syncAgo(t) {
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 10) return "just now";
+    if (s < 60) return s + " seconds ago";
+    const m = Math.round(s / 60);
+    if (m < 60) return m + (m === 1 ? " minute ago" : " minutes ago");
+    const h = Math.round(m / 60);
+    return h + (h === 1 ? " hour ago" : " hours ago");
+  }
+  function syncStatusText() {
+    switch (syncState.status) {
+      case "ok": return "On — synced " + syncAgo(syncState.lastOk);
+      case "syncing": return "Syncing…";
+      case "offline": return "Offline — will sync when you're back online";
+      case "error": return "Problem: " + (syncState.error || "unknown");
+      default: return syncUrl() ? (hasSpotifyLogin() ? "Starting…" : "Connect Spotify to sync") : "Not set up yet";
+    }
+  }
+  function syncSetStatus(s) {
+    syncState.status = s;
+    if (syncBtn) {
+      syncBtn.dataset.state = s;
+      syncBtn.dataset.label = "Cloud sync: " + (s === "ok" ? "synced " + syncAgo(syncState.lastOk) : s === "syncing" ? "syncing…" : s === "error" ? "problem — click for details" : s === "offline" ? "offline" : (syncUrl() ? "waiting" : "set up"));
+    }
+    const line = document.getElementById("sync-status-line");
+    if (line) line.textContent = syncStatusText();
+  }
+  function renderSyncDialog(opts) {
+    opts = opts || {};
+    const url = syncUrl();
+    let h = '<p class="backup-confirm-title">Cloud sync</p><p class="backup-confirm-count" id="sync-status-line"></p>';
+    if (opts.message) h += '<p class="sync-msg">' + escapeHtml(opts.message) + "</p>";
+    if (!url || opts.editing) {
+      h += '<p class="sync-help">Paste the address of your sync Worker (ends in <b>workers.dev</b>):</p>';
+      h += '<input type="url" class="sync-input" id="sync-url-input" placeholder="https://lp-sync.yourname.workers.dev" value="' + escapeHtml(url) + '" />';
+      h += '<div class="backup-confirm-actions"><button type="button" class="backup-confirm-no" data-sync="save">Save &amp; test</button><button type="button" class="backup-confirm-yes" data-sync="close">Close</button></div>';
+    } else if (opts.restoreDays) {
+      h += '<p class="sync-help">Restore the shelf as it was at the start of:</p><select class="sync-input" id="sync-day">' + opts.restoreDays.map((d) => '<option value="' + d + '">' + d + "</option>").join("") + "</select>";
+      h += '<div class="backup-confirm-actions"><button type="button" class="backup-confirm-no" data-sync="restore-go">Restore</button><button type="button" class="backup-confirm-yes" data-sync="back">Back</button></div>';
+    } else {
+      h += '<div class="sync-col"><button type="button" class="backup-confirm-no" data-sync="now">Sync now</button><button type="button" class="backup-confirm-yes" data-sync="restore">Restore an earlier day…</button><button type="button" class="backup-confirm-yes" data-sync="edit">Change server address</button><button type="button" class="backup-confirm-yes" data-sync="close">Close</button></div>';
+    }
+    syncDialogEl.innerHTML = h;
+    syncSetStatus(syncState.status);
+  }
+  function openSyncDialog(opts) { renderSyncDialog(opts); syncDialogEl.classList.add("open"); }
+  function closeSyncDialog() { syncDialogEl.classList.remove("open"); }
+  syncBtn.addEventListener("click", (e) => { e.stopPropagation(); closeBackupPanel(); openSyncDialog(); });
+  document.addEventListener("click", (e) => { if (syncDialogEl.classList.contains("open") && !syncDialogEl.contains(e.target)) closeSyncDialog(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSyncDialog(); });
+  setInterval(() => { if (syncState.status === "ok") syncSetStatus("ok"); }, 30000);
+
+  async function syncSaveUrl() {
+    const input = document.getElementById("sync-url-input");
+    let u = (input.value || "").trim().replace(/\/+$/, "");
+    if (!/^https:\/\/[^\s/]+/i.test(u)) { renderSyncDialog({ editing: true, message: "That doesn't look like an https:// address." }); return; }
+    if (!hasSpotifyLogin()) { renderSyncDialog({ editing: true, message: "Connect Spotify first, then try again." }); return; }
+    if (isOffline) { renderSyncDialog({ editing: true, message: "You're offline." }); return; }
+    const token = await getUserAccessToken();
+    try {
+      const res = await fetch(u + "/ping", { headers: { Authorization: "Bearer " + token } });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(res.status === 401 ? "the server didn't accept your Spotify sign-in" : res.status === 403 ? "this Spotify account isn't on the allowed list" : "the server answered " + res.status);
+    } catch (e) {
+      renderSyncDialog({ editing: true, message: "Couldn't reach it: " + (e && e.message ? e.message : e) });
+      return;
+    }
+    try { localStorage.setItem(SYNC_URL_KEY, u); } catch {}
+    renderSyncDialog({ message: "Connected ✓" });
+    syncStart();
+    syncRun();
+  }
+  async function syncRestoreStart() {
+    try {
+      const token = await getUserAccessToken();
+      const j = await syncFetch("/snapshots", {}, token);
+      if (!j.snapshots || !j.snapshots.length) { renderSyncDialog({ message: "No earlier days saved yet — one is kept for each day you make changes." }); return; }
+      renderSyncDialog({ restoreDays: j.snapshots });
+    } catch (e) { renderSyncDialog({ message: "Couldn't load the list: " + (e && e.message ? e.message : e) }); }
+  }
+  async function syncRestoreGo() {
+    const day = document.getElementById("sync-day").value;
+    if (!window.confirm("Replace your whole shelf (on all your synced computers) with how it was at the start of " + day + "?")) return;
+    try {
+      await syncRun(); // bring this device up to date first, so nothing newer is lost by accident
+      const token = await getUserAccessToken();
+      const snap = await syncFetch("/snapshots/" + encodeURIComponent(day), {}, token);
+      const mine = new Map(shelf.map((r) => [r.id, r]));
+      const recs = (snap.records || []).map((r) => syncKeepLocalDl(r, mine.get(r.id)));
+      localStorage.setItem(SYNC_FORCE_KEY, "1");
+      syncApplyLocal(recs, snap.tags || []);
+      await syncRun();
+      renderSyncDialog({ message: "Restored to the start of " + day + " ✓" });
+    } catch (e) { renderSyncDialog({ message: "Restore failed: " + (e && e.message ? e.message : e) }); }
+  }
+  syncDialogEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const b = e.target.closest("[data-sync]");
+    if (!b) return;
+    const act = b.getAttribute("data-sync");
+    if (act === "close") closeSyncDialog();
+    else if (act === "now") { syncRun(); }
+    else if (act === "edit") renderSyncDialog({ editing: true });
+    else if (act === "back") renderSyncDialog();
+    else if (act === "save") syncSaveUrl();
+    else if (act === "restore") syncRestoreStart();
+    else if (act === "restore-go") syncRestoreGo();
+  });
+  syncSetStatus("off");
+
   async function bootstrapSpotifyAuth() {
     const justLoggedIn = await handleOAuthRedirectIfPresent();
     renderAccountUi();
@@ -6402,6 +6792,7 @@
       if (swapped) { location.reload(); return; }
       renderAccountUi();
     }
+    syncStart();
   }
   bootstrapSpotifyAuth();
 
