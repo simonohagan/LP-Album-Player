@@ -1031,6 +1031,10 @@
   #sync-btn[data-state="error"] .sync-dot { background: #b2503f; }
   #sync-btn[data-state="offline"] .sync-dot { background: #a99d86; }
   .sync-dialog { max-width: 290px; width: 290px; }
+  .sync-conn { margin: -0.35rem 0 0.55rem; color: #a08a63; font-size: 0.64rem; font-style: italic; opacity: 0.85; }
+  .sync-dialog .backup-confirm-count { margin-bottom: 1rem; }
+  .backup-confirm-no:disabled { opacity: 0.45; cursor: default; background: #cdbf9d; }
+  .backup-confirm-no:disabled:hover { background: #cdbf9d; }
   .sync-msg { margin: 0 0 0.7rem; color: #6b5a40; font-size: 0.7rem; line-height: 1.4; }
   .sync-help { margin: 0 0 0.45rem; color: #6b5a40; font-size: 0.68rem; line-height: 1.35; }
   .sync-input { width: 100%; box-sizing: border-box; margin: 0 0 0.8rem; padding: 0.4rem 0.5rem; border: 1px solid #b9a67f; border-radius: 4px; background: #fffaf0; color: var(--wood-dark); font: 400 0.72rem 'Work Sans', sans-serif; }
@@ -2250,7 +2254,7 @@
       <div class="backup-panel" id="backup-panel">
         <button type="button" class="acct-bubble backup-panel-btn" id="backup-export-btn" data-label="Export backup" aria-label="Export backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></button>
         <button type="button" class="acct-bubble backup-panel-btn" id="backup-import-btn" data-label="Import backup" aria-label="Import backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 19h16"/></svg></button>
-        <button type="button" class="acct-bubble" id="sync-btn" data-label="Cloud sync" data-state="off" aria-label="Cloud sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 10a4 4 0 0 1 0 8z"/></svg><span class="sync-dot"></span></button>
+        <button type="button" class="acct-bubble" id="sync-btn" data-label="Cloud Sync" data-state="off" aria-label="Cloud Sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 10a4 4 0 0 1 0 8z"/></svg><span class="sync-dot"></span></button>
         <span class="acct-sep"></span>
         <button type="button" class="acct-bubble" id="acct-add-btn" data-label="Add account" aria-label="Add account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
         <div class="acct-list" id="acct-list"></div>
@@ -5018,6 +5022,7 @@
     const changed = value !== isOffline;
     isOffline = value;
     applyOfflineUi();
+    syncConnectivityChanged(); // cloud-sync dialog + tick (v133)
     if (isOffline) {
       if (typeof showingReleases !== "undefined" && showingReleases) closeReleasesView();
       startOfflinePolling();
@@ -6028,8 +6033,11 @@
   let isDirty = loadDirtyFlag();
 
   function updateSaveIndicator() {
-    saveIndicatorEl.innerHTML = isDirty ? SAVE_ICON_DIRTY : SAVE_ICON_CLEAN;
-    saveIndicatorEl.setAttribute("aria-label", isDirty ? "Unsaved changes since last backup" : "Backup up to date");
+    // v133: with cloud sync on, the tick means "saved to the cloud"; without it, the old "differs from last export"
+    const cloud = !!(syncState && syncState.cloud);
+    const dirty = cloud ? syncState.pending : isDirty;
+    saveIndicatorEl.innerHTML = dirty ? SAVE_ICON_DIRTY : SAVE_ICON_CLEAN;
+    saveIndicatorEl.setAttribute("aria-label", cloud ? (dirty ? "Changes not saved to the cloud yet" : "Saved to the cloud") : (dirty ? "Unsaved changes since last backup" : "Backup up to date"));
   }
   function markDirty() {
     if (isDirty) return;
@@ -6520,11 +6528,26 @@
     return { records: out, tags, lost, guarded };
   }
 
-  var syncState = { timer: null, poll: null, busy: false, again: false, started: false, status: "off", lastOk: 0, error: "", wantRetry: 0 };
+  var syncState = { timer: null, poll: null, busy: false, again: false, started: false, status: "off", lastOk: 0, error: "", wantRetry: 0, cloud: !!syncUrl(), pending: true, syncedSig: null, ready: false };
   var syncApplying = false;
 
+  // A signature of the shelf as the cloud sees it (ignores things that are never synced), so the tick can tell
+  // "something really changed since the last sync" from a redraw.
+  function syncSig() {
+    return JSON.stringify([shelf, Array.from(allTagNames).filter((t) => !syncIsDl(t)).sort()], (k, v) => {
+      if (SYNC_VOLATILE.has(k)) return undefined;
+      if (k === "tags" && Array.isArray(v)) return v.filter((t) => !syncIsDl(t));
+      return v;
+    });
+  }
+  function syncRefreshPending() {
+    if (!syncState.cloud) return;
+    syncState.pending = syncState.syncedSig === null || syncSig() !== syncState.syncedSig;
+    updateSaveIndicator();
+  }
   function syncNoteChange() {
     if (!syncState || syncApplying || !syncUrl()) return;
+    if (syncState.ready) syncRefreshPending();
     // stamp what changed shortly after the edit, so "who edited last" reflects when you actually did
     clearTimeout(syncState.stampTimer);
     syncState.stampTimer = setTimeout(stampLocal, 1200);
@@ -6614,6 +6637,7 @@
         if (merged.guarded) showAcctToast("Your shelf here looked mostly emptied, so the cloud copy was kept and put back. (If you meant to delete that much, delete from the other device or use Restore.)");
         syncApplyLocal(merged.records, merged.tags);
       }
+      const sigAtMerge = syncSig();
       let newRev = remote ? remote.rev : base.rev, newVer = remote ? remote.ver : base.ver;
       if (remoteDiffers) {
         const put = await syncFetch("/shelf", {
@@ -6628,6 +6652,7 @@
         if (!chk.unchanged) continue;
       }
       saveSyncBase({ rev: newRev, ver: newVer, h: mh, tags: merged.tags });
+      syncState.syncedSig = sigAtMerge;
       if (force) localStorage.removeItem(SYNC_FORCE_KEY);
       return;
     }
@@ -6651,6 +6676,7 @@
       syncSetStatus(isOffline ? "offline" : "error");
     } finally {
       syncState.busy = false;
+      syncRefreshPending();
       if (syncState.again) { syncState.again = false; syncSchedule(1500); }
     }
   }
@@ -6691,15 +6717,20 @@
     syncState.status = s;
     if (syncBtn) {
       syncBtn.dataset.state = s;
-      syncBtn.dataset.label = "Cloud sync: " + (s === "ok" ? "synced " + syncAgo(syncState.lastOk) : s === "syncing" ? "syncing…" : s === "error" ? "problem — click for details" : s === "offline" ? "offline" : (syncUrl() ? "waiting" : "set up"));
+      syncBtn.dataset.label = "Cloud Sync: " + (s === "ok" ? "synced " + syncAgo(syncState.lastOk) : s === "syncing" ? "syncing…" : s === "error" ? "problem — click for details" : s === "offline" ? "offline" : (syncUrl() ? "waiting" : "set up"));
     }
     const line = document.getElementById("sync-status-line");
     if (line) line.textContent = syncStatusText();
+    const conn = document.getElementById("sync-conn-line");
+    if (conn) conn.textContent = isOffline ? "Offline" : "Online";
+    const nowBtn = syncDialogEl.querySelector('[data-sync="now"]');
+    if (nowBtn) nowBtn.disabled = !!isOffline;
+    updateSaveIndicator();
   }
   function renderSyncDialog(opts) {
     opts = opts || {};
     const url = syncUrl();
-    let h = '<p class="backup-confirm-title">Cloud sync</p><p class="backup-confirm-count" id="sync-status-line"></p>';
+    let h = '<p class="backup-confirm-title">Cloud Sync</p><p class="sync-conn" id="sync-conn-line"></p><p class="backup-confirm-count" id="sync-status-line"></p>';
     if (opts.message) h += '<p class="sync-msg">' + escapeHtml(opts.message) + "</p>";
     if (!url || opts.editing) {
       h += '<p class="sync-help">Paste the address of your sync Worker (ends in <b>workers.dev</b>):</p>';
@@ -6709,7 +6740,7 @@
       h += '<p class="sync-help">Restore the shelf as it was at the start of:</p><select class="sync-input" id="sync-day">' + opts.restoreDays.map((d) => '<option value="' + d + '">' + d + "</option>").join("") + "</select>";
       h += '<div class="backup-confirm-actions"><button type="button" class="backup-confirm-no" data-sync="restore-go">Restore</button><button type="button" class="backup-confirm-yes" data-sync="back">Back</button></div>';
     } else {
-      h += '<div class="sync-col"><button type="button" class="backup-confirm-no" data-sync="now">Sync now</button><button type="button" class="backup-confirm-yes" data-sync="restore">Restore an earlier day…</button><button type="button" class="backup-confirm-yes" data-sync="edit">Change server address</button><button type="button" class="backup-confirm-yes" data-sync="close">Close</button></div>';
+      h += '<div class="sync-col"><button type="button" class="backup-confirm-no" data-sync="now"' + (isOffline ? " disabled" : "") + '>Sync now</button><button type="button" class="backup-confirm-yes" data-sync="close">Close</button></div>';
     }
     syncDialogEl.innerHTML = h;
     syncSetStatus(syncState.status);
@@ -6737,6 +6768,7 @@
       return;
     }
     try { localStorage.setItem(SYNC_URL_KEY, u); } catch {}
+    syncState.cloud = true; syncRefreshPending();
     renderSyncDialog({ message: "Connected ✓" });
     syncStart();
     syncRun();
@@ -6778,6 +6810,12 @@
     else if (act === "restore-go") syncRestoreGo();
   });
   syncSetStatus("off");
+  function syncConnectivityChanged() {
+    if (!syncState || !syncState.ready) return;
+    syncSetStatus(syncState.status);
+  }
+  syncState.ready = true;
+  updateSaveIndicator();
 
   async function bootstrapSpotifyAuth() {
     const justLoggedIn = await handleOAuthRedirectIfPresent();

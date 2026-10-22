@@ -2,7 +2,14 @@
 
 (Formerly "Vinyl Shelf". Entries before v118 use the old name.)
 
-## v132 (current)
+## v133 (current)
+- **Cloud Sync menu tidied:** "Change server address" and "Restore an earlier day" buttons removed (the daily cloud snapshots are still kept by the Worker); title is now "Cloud Sync"; under it a fainter italic line says **Online** or **Offline**, then the status line as before, with proper space above the button.
+- **Sync now is greyed out while offline** (and switches on again when you're back online, even with the menu open).
+- **The tick circle now means "saved to the cloud".** Dirty (outline) the moment you change something that syncs; ticked once the cloud has it, normally a few seconds later. Offline changes stay un-ticked until they upload. Redraws and housekeeping that is never synced (first-hover track fetches, the "unwrapped" sheen, the Downloaded tag) don't flip it. If cloud sync isn't set up, it falls back to the old "differs from last export" meaning. Hover text/label says "Saved to the cloud" / "Changes not saved to the cloud yet". Showing as un-ticked for the first second or two after launch, before the first sync finishes, is expected.
+- Tests: `test_v133_sync` 76 checks (the 59 sync checks, with the restore test driven without the removed buttons, plus 17 new for menu text/layout, offline-disabled button and the tick in six situations); v130 account and smoke suites pass. The page-error check reports "Spotify is not defined" in this test setup after going back online; it comes from the empty stand-in for Spotify's player script used in tests and happens identically in v130.
+- Service worker cache v133.
+
+## v132
 - **The sync server address is built in** (`https://lp-sync.simonohagan.workers.dev`), so nobody has to paste anything: connect Spotify and sync starts. The paste box is now only a fallback under the cloud bubble's "Change server address".
 - Tests: `test_v131_sync` re-run for v132 (59 checks) with its last section replaced by built-in-address checks (shelf uploads with nothing pasted, no paste box shown, a brand-new computer gets the shelf with zero setup, a second Spotify account syncs its own separate shelf); v130 account and smoke suites pass; no page errors.
 - Not verified: the live Worker itself (I can't reach it from here); the first real launch will show a green dot if it's set up correctly, or a red one with the reason if not.
